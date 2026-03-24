@@ -1,0 +1,16 @@
+[Unit]
+Description=freeTG SOCKS5 Telegram WebSocket Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=falearn
+WorkingDirectory=/home/falearn/petProjects/tglock
+EnvironmentFile=-/etc/default/freeTG
+ExecStart=/usr/local/bin/freeTG -listen 127.0.0.1:8989
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

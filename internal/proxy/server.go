@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -41,7 +42,7 @@ func (s *Server) Run() error {
 			if s.closed.Load() || errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			if ne, ok := err.(net.Error); ok && ne.Temporary() {
+			if isRetriableAcceptError(err) {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
@@ -86,5 +87,24 @@ func (s *Server) handleConn(id uint64, conn net.Conn) {
 
 	if err := relayDirect(conn, req.Address()); err != nil {
 		s.logger.Printf("conn=%d direct relay failed: %v", id, err)
+	}
+}
+
+func isRetriableAcceptError(err error) bool {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Timeout() {
+		return true
+	}
+
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
+		return false
+	}
+
+	switch errno {
+	case syscall.ECONNABORTED, syscall.EMFILE, syscall.ENFILE, syscall.ENOBUFS, syscall.ENOMEM:
+		return true
+	default:
+		return false
 	}
 }

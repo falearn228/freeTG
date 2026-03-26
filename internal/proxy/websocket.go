@@ -23,6 +23,10 @@ const (
 	wsOpcodeClose  = 0x8
 	wsOpcodePing   = 0x9
 	wsOpcodePong   = 0xA
+
+	wsDialRetryInitialBackoff = 250 * time.Millisecond
+	wsDialRetryMaxBackoff     = 5 * time.Second
+	wsDialRetryTotalWindow    = 30 * time.Second
 )
 
 type wsConn struct {
@@ -32,6 +36,43 @@ type wsConn struct {
 }
 
 func dialTelegramWS(dc byte) (*wsConn, error) {
+	deadline := time.Now().Add(wsDialRetryTotalWindow)
+	backoff := wsDialRetryInitialBackoff
+	var lastErr error
+
+	for attempt := 1; ; attempt++ {
+		ws, err := dialTelegramWSOnce(dc)
+		if err == nil {
+			return ws, nil
+		}
+		lastErr = err
+
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("websocket dial retry window exceeded after %d attempts: %w", attempt, lastErr)
+		}
+
+		sleepFor := backoff
+		if sleepFor > wsDialRetryMaxBackoff {
+			sleepFor = wsDialRetryMaxBackoff
+		}
+
+		if remaining := time.Until(deadline); remaining < sleepFor {
+			sleepFor = remaining
+		}
+		if sleepFor <= 0 {
+			return nil, fmt.Errorf("websocket dial retry window exceeded after %d attempts: %w", attempt, lastErr)
+		}
+
+		time.Sleep(sleepFor)
+
+		backoff *= 2
+		if backoff > wsDialRetryMaxBackoff {
+			backoff = wsDialRetryMaxBackoff
+		}
+	}
+}
+
+func dialTelegramWSOnce(dc byte) (*wsConn, error) {
 	var errs []string
 	for _, host := range telegramWSEndpoints(dc) {
 		ws, err := dialSingleTelegramWS(host)
